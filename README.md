@@ -37,7 +37,7 @@ my-terminal-app/
 
 1. **Clone the repository and enter the directory:**
    ```bash
-   git clone https://github.com
+   git clone https://github.com/spymethod254/my-terminal-app.git
    cd my-terminal-app
    ```
 
