@@ -59,7 +59,7 @@ wss.on('connection', (ws) => {
             if (msg.type === 'input') {
                 ptyProcess.write(msg.data);
             } else if (msg.type === 'command') {
-                ptyProcess.write(msg.data + 'r'\);
+                ptyProcess.write(msg.data + '\r');
             }
         } catch (e) {
             // Fallback safety filter to keep text processing active if message mapping shifts
