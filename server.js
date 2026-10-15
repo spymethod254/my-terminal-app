@@ -1,70 +1,65 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const { Client } = require('ssh2');
-const fs = require('fs');
-const path = require('path');
+const pty = require('node-pty');
+const os = require('os');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+// Serve static HTML layout dashboard assets from the public directory
 app.use(express.static('public'));
 
-// Endpoint to fetch the filesystem list visually for the sidebar
-app.get('/api/files', (req, res) => {
-    const targetPath = req.query.path || process.cwd();
-    fs.readdir(targetPath, { withFileTypes: true }, (err, files) => {
-        if (err) return res.status(500).json({ error: 'Cannot read directory' });
-        
-        const list = files.map(file => ({
-            name: file.name,
-            isDirectory: file.isDirectory(),
-            path: path.join(targetPath, file.name)
-        }));
-        res.json({ currentDir: targetPath, files: list });
-    });
-});
+// Railway dynamically assigns a network port using process.env.PORT
+const PORT = process.env.PORT || 3000;
+
+// Determine the available terminal shell on the hosting environment
+const shell = os.platform() === 'android' ? '/system/bin/sh' : '/bin/bash';
 
 wss.on('connection', (ws) => {
-    const conn = new Client();
+    // Launch an internal bash terminal process directly inside the cloud container
+    const ptyProcess = pty.spawn(shell, [], {
+        name: 'xterm-color',
+        cols: 80,
+        rows: 24,
+        cwd: process.env.HOME || process.cwd(),
+        env: process.env
+    });
 
-    conn.on('ready', () => {
-        conn.shell({ term: 'xterm-color', cols: 80, rows: 24 }, (err, stream) => {
-            if (err) {
-                ws.send('\r\n[App Error: Failed to open interactive shell]\r\n');
-                return conn.end();
+    // Stream live bash terminal print outputs straight to the web layout canvas
+    ptyProcess.onData((data) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(data);
+        }
+    });
+
+    // Listen for direct interactive keystrokes or shortcut macros coming from the web UI
+    ws.on('message', (message) => {
+        try {
+            const msg = JSON.parse(message.toString());
+            
+            if (msg.type === 'input') {
+                ptyProcess.write(msg.data);
+            } else if (msg.type === 'command') {
+                ptyProcess.write(msg.data \(+ '\r'\));
             }
+        } catch (e) {
+            // Fallback to handling raw text streams if format changes
+            ptyProcess.write(message.toString());
+        }
+    });
 
-            stream.on('data', (data) => ws.send(data.toString()));
-
-            ws.on('message', (message) => {
-                const msg = JSON.parse(message.toString());
-                
-                // Handle normal raw keyboard entry typing stream
-                if (msg.type === 'input') {
-                    stream.write(msg.data);
-                } 
-                // Handle automation shortcuts running from our Quick Commands panel
-                else if (msg.type === 'command') {
-                    stream.write(msg.data + '\r');
-                }
-            });
-
-            ws.on('close', () => conn.end());
-        });
-    }).connect({
-        host: '127.0.0.1',
-        port: 8022,
-        username: 'hamsogwiji',
-        password: 'YOUR_PASSWORD_HERE' // ⚠️ REMEMBER TO PUT YOUR PASSWORD HERE!
+    // Clean up container resources instantly when a browser session ends
+    ws.on('close', () => {
+        ptyProcess.kill();
     });
 });
 
-server.listen(3000, () => {
+// Boot up the system listener
+server.listen(PORT, () => {
     console.log('==================================================');
-    console.log(' 🚀 WORKSPACE IDE ENGINE WITH SIDEBARS IS LIVE!');
-    console.log(' 👉 Open browser to: http://localhost:3000');
+    console.log(` 🚀 STANDALONE CLOUD TERMINAL APP IS ACTIVE!`);
+    console.log(` 👉 Server Listening on port: ${PORT}`);
     console.log('==================================================\n');
 });
-
